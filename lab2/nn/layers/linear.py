@@ -1,6 +1,6 @@
 from ..module import Module
 from ..tensor import Tensor
-from utils import he_initialization
+from utils import he_initialization, init_biases
 import numpy as np
 
 
@@ -8,6 +8,7 @@ class Linear(Module):
     def __init__(self, n_inputs: int, n_outputs: int):
         super().__init__()
         self.W = he_initialization(n_inputs, n_outputs)
+        self.bias = init_biases(n_outputs)
         self.output = None
 
     def forward(self, x: Tensor) -> Tensor:
