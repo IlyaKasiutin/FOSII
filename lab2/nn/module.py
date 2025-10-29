@@ -10,8 +10,11 @@ class Module:
             yield from m.parameters()
 
     def zero_grad(self):
-        for p in self.parameters():
-            p.zero_grad()
+        # For layers with gradient attributes, zero them out
+        if hasattr(self, 'W_grad'):
+            self.W_grad.fill(0)
+        if hasattr(self, 'bias_grad'):
+            self.bias_grad.fill(0)
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError
