@@ -55,13 +55,11 @@ class Conv2d(Module):
                 for ic in range(self.in_channels):
                     for i in range(out_height):
                         for j in range(out_width):
-                            # Calculate receptive field
                             h_start = i * self.stride
                             h_end = h_start + self.kernel_height
                             w_start = j * self.stride
                             w_end = w_start + self.kernel_width
                             
-                            # Compute convolution
                             output[b, oc, i, j] += np.sum(
                                 padded_input[b, ic, h_start:h_end, w_start:w_end] * 
                                 self.W[oc, ic, :, :]
@@ -93,7 +91,6 @@ class Conv2d(Module):
                 
                 for i in range(out_height):
                     for j in range(out_width):
-                        # Calculate receptive field
                         h_start = i * self.stride
                         h_end = h_start + self.kernel_height
                         w_start = j * self.stride
@@ -110,7 +107,6 @@ class Conv2d(Module):
                                 output_grad[b, oc, i, j]
                             )
                             
-        # Remove padding from input gradients if needed
         if self.padding > 0:
             input_grad = padded_input_grad[:, :, self.padding:-self.padding, self.padding:-self.padding]
             

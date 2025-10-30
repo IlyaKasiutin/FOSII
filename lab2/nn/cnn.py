@@ -4,6 +4,7 @@ from .module import Module
 from .layers.convolution import Conv2d
 from .layers.pooling import AvgPool2d
 from .layers.linear import Linear
+from .layers.tanh import Tanh
 from .layers.sigmoid import Sigmoid
 from tqdm import tqdm
 
@@ -28,7 +29,7 @@ class LeNet(Module):
         self.fc_layers = [
             Linear(120, 84),
             Sigmoid(),
-            Linear(84, num_classes)
+            Linear(84, num_classes),
         ]
         
         self.all_layers = self.conv_layers + self.fc_layers
@@ -97,23 +98,7 @@ class LeNet(Module):
               X_val: np.ndarray = None, y_val: np.ndarray = None,
               epochs: int = 10, batch_size: int = 32, learning_rate: float = 0.001,
               loss_fn=None, verbose: bool = True) -> dict:
-        """
-        Train the LeNet model
-        
-        Args:
-            X_train: Training data of shape (num_samples, channels, height, width)
-            y_train: Training labels (one-hot encoded) of shape (num_samples, num_classes)
-            X_val: Validation data (optional)
-            y_val: Validation labels (optional)
-            epochs: Number of training epochs
-            batch_size: Size of each training batch
-            learning_rate: Learning rate for parameter updates
-            loss_fn: Loss function to use (default: CrossEntropy)
-            verbose: Whether to print training progress
-            
-        Returns:
-            Dictionary containing training history
-        """
+
         if loss_fn is None:
             from .losses.cross_entropy import CrossEntropy
             loss_fn = CrossEntropy()
