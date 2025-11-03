@@ -1,5 +1,5 @@
 from ..module import Module
-from ..utils import he_initialization, init_biases
+from ..utils import he_initialization_conv, init_biases
 import numpy as np
 from typing import Tuple, Union
 
@@ -24,9 +24,18 @@ class Conv2d(Module):
         fan_out = out_channels * self.kernel_height * self.kernel_width
         limit = np.sqrt(6. / (fan_in + fan_out))
         
-        self.W = np.random.uniform(-limit, limit, 
-                                  (out_channels, in_channels, self.kernel_height, self.kernel_width))
-        self.bias = np.zeros((out_channels, 1))
+        # self.W = np.random.uniform(-limit, limit, 
+        #                     (out_channels, in_channels, self.kernel_height, self.kernel_width))
+        # self.bias = np.zeros((out_channels, 1))
+
+
+        self.W = he_initialization_conv(
+            in_channels,
+            out_channels,
+            self.kernel_height,
+            self.kernel_width
+        )
+        self.bias = init_biases(out_channels)
         
         self._params = {"weights": self.W, "bias": self.bias}
         self.W_grad = np.zeros_like(self.W)
@@ -109,6 +118,10 @@ class Conv2d(Module):
                             
         if self.padding > 0:
             input_grad = padded_input_grad[:, :, self.padding:-self.padding, self.padding:-self.padding]
+        else:
+            # When padding == 0, padded_input_grad contains the computed gradients
+            # but it's a different array (created via .astype()), so we need to copy it back
+            input_grad = padded_input_grad.astype(self.input.dtype)
             
         return input_grad
     

@@ -6,6 +6,8 @@ from .layers.pooling import AvgPool2d
 from .layers.linear import Linear
 from .layers.tanh import Tanh
 from .layers.sigmoid import Sigmoid
+from .layers.relu import ReLU
+from .layers.softmax import Softmax
 from tqdm import tqdm
 
 
@@ -15,20 +17,20 @@ class LeNet(Module):
         
         self.conv_layers = [
             Conv2d(in_channels=1, out_channels=6, kernel_size=5, stride=1, padding=2),
-            Sigmoid(),
+            ReLU(),
             AvgPool2d(kernel_size=2, stride=2),
             
             Conv2d(in_channels=6, out_channels=16, kernel_size=5, stride=1, padding=0),
-            Sigmoid(),
+            ReLU(),
             AvgPool2d(kernel_size=2, stride=2),
             
             Conv2d(in_channels=16, out_channels=120, kernel_size=5, stride=1, padding=0),
-            Sigmoid()
+            ReLU()
         ]
         
         self.fc_layers = [
             Linear(120, 84),
-            Sigmoid(),
+            ReLU(),
             Linear(84, num_classes),
         ]
         
@@ -68,10 +70,21 @@ class LeNet(Module):
             output_grad = layer.backward(output_grad)
 
 
-    def update_params(self, learning_rate: float = 0.001) -> None:
-        for layer in self.all_layers:
-            if hasattr(layer, 'update_params'):
-                layer.update_params(learning_rate)
+    def update_params(self, learning_rate: float = 0.001, optimizer=None) -> None:
+        """
+        Update parameters of all layers
+        
+        Args:
+            learning_rate: Learning rate for parameter updates (used if optimizer is None)
+            optimizer: Optional optimizer instance (SGD, Adam, etc.). If None, uses SGD with learning_rate
+        """
+        if optimizer is not None:
+            optimizer.step(self)
+        else:
+            # Backward compatibility: use simple SGD
+            for layer in self.all_layers:
+                if hasattr(layer, 'update_params'):
+                    layer.update_params(learning_rate)
 
 
     def zero_grad(self) -> None:
@@ -79,7 +92,7 @@ class LeNet(Module):
             if hasattr(layer, 'zero_grad'):
                 layer.zero_grad()
                 
-    def train_step(self, X: np.ndarray, y_true: np.ndarray, loss_fn, learning_rate: float = 0.001) -> float:
+    def train_step(self, X: np.ndarray, y_true: np.ndarray, loss_fn, learning_rate: float = 0.001, optimizer=None) -> float:
         y_pred = self.forward(X)
         
         loss = loss_fn.forward(y_pred.T, y_true.T)
@@ -88,7 +101,7 @@ class LeNet(Module):
         loss_grad = loss_fn.backward(y_pred.T, y_true.T)
         self.backward(loss_grad.T)
         
-        self.update_params(learning_rate)
+        self.update_params(learning_rate, optimizer)
         
         self.zero_grad()
         
@@ -97,7 +110,7 @@ class LeNet(Module):
     def train(self, X_train: np.ndarray, y_train: np.ndarray,
               X_val: np.ndarray = None, y_val: np.ndarray = None,
               epochs: int = 10, batch_size: int = 32, learning_rate: float = 0.001,
-              loss_fn=None, verbose: bool = True) -> dict:
+              loss_fn=None, optimizer=None, verbose: bool = True) -> dict:
 
         if loss_fn is None:
             from .losses.cross_entropy import CrossEntropy
@@ -122,7 +135,7 @@ class LeNet(Module):
                 X_batch = X_train_shuffled[i:i+batch_size]
                 y_batch = y_train_shuffled[i:i+batch_size]
                 
-                batch_loss = self.train_step(X_batch, y_batch, loss_fn, learning_rate)
+                batch_loss = self.train_step(X_batch, y_batch, loss_fn, learning_rate, optimizer)
                 total_loss += batch_loss
                 num_batches += 1
             

@@ -15,7 +15,7 @@ class Linear(Module):
         self.input = None
 
     def forward(self, x: np.ndarray) -> np.ndarray:
-        self.input = x  # (batch_size, n_in) or (n_in, 1)
+        self.input = x  # (n_in, batch) or (n_in, 1)
         self.output = self.W @ x + self.bias  # (n_out, n_in) * (n_in, batch) = (n_out, batch)
         return self.output
     
