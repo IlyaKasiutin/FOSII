@@ -79,6 +79,9 @@ class Conv2d(Module):
         return output
     
     def backward(self, output_grad: np.ndarray) -> np.ndarray:
+        """
+        https://pavisj.medium.com/convolutions-and-backpropagations-46026a8f5d2c
+        """
         batch_size, in_channels, in_height, in_width = self.input.shape
         _, out_channels, out_height, out_width = output_grad.shape
         
