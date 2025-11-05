@@ -47,13 +47,13 @@ class Optimizer(ABC):
                 layers.extend(model.fc_layers)
             if hasattr(model, 'layers'):
                 layers.extend(model.layers)
-            
-            # Fallback: try to get from _modules
-            if not layers and hasattr(model, '_modules'):
-                for module in model._modules.values():
-                    if (hasattr(module, 'W_grad') or hasattr(module, 'bias_grad') or 
-                        hasattr(module, 'U_grad') or hasattr(module, 'V_grad')):
-                        layers.append(module)
+        
+        # Fallback: try to get from _modules (always check as fallback)
+        if not layers and hasattr(model, '_modules'):
+            for module in model._modules.values():
+                if (hasattr(module, 'W_grad') or hasattr(module, 'bias_grad') or 
+                    hasattr(module, 'U_grad') or hasattr(module, 'V_grad')):
+                    layers.append(module)
         
         # Yield parameter-gradient pairs
         # Only yield for layers that actually have parameters (Linear, Conv2d, RNN, etc.)

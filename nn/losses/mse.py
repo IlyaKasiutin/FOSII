@@ -17,6 +17,9 @@ class MSE(Module):
         """
         if isinstance(y_true, float) and isinstance(y_pred, float):
             return 0.5 * (y_pred - y_true) ** 2
+        
+        if y_true.ndim == y_pred.ndim:
+            return 0.5 * np.sum(np.square(y_pred - y_true), axis=0)
         elif  y_true.ndim == 1:
             y_true_extended = np.zeros((len(y_true), y_pred.shape[-1]))
             y_true_extended[np.arange(len(y_true_extended)), y_true] = 1
@@ -36,6 +39,8 @@ class MSE(Module):
             Gradient of shape (n_outputs, batch_size)
         """
         if isinstance(y_true, float) and isinstance(y_pred, float):
+            return y_pred - y_true
+        elif y_true.ndim == y_pred.ndim:
             return y_pred - y_true
         elif y_true.ndim == 1:
             y_true_extended = np.zeros((len(y_true), y_pred.shape[-1]))

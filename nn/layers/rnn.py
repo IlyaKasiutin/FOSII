@@ -77,6 +77,5 @@ class RNN(Module):
     
     def update_params(self, learning_rate: float = 0.001):
         self.W -= learning_rate * self.W_grad
-        self.bias -= learning_rate * self.bias_grad
         self.U -= learning_rate * self.U_grad
         self.V -= learning_rate * self.V_grad
