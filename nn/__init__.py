@@ -6,6 +6,8 @@ from .layers.sigmoid import Sigmoid
 from .layers.softmax import Softmax
 from .layers.convolution import Conv2d
 from .layers.pooling import MaxPool2d, AvgPool2d
+from .layers.transformer_block import TransformerBlock, MultiHeadAttention, LayerNorm, FeedForward
+from .transformer_model import Transformer
 from .losses.mse import MSE
 from .losses.cross_entropy import CrossEntropy
 from .optimizers.sgd import SGD
@@ -22,6 +24,11 @@ __all__ = [
     "Conv2d",
     "MaxPool2d",
     "AvgPool2d",
+    "TransformerBlock",
+    "MultiHeadAttention",
+    "LayerNorm",
+    "FeedForward",
+    "Transformer",
     "MSE",
     "CrossEntropy",
     "SGD",
