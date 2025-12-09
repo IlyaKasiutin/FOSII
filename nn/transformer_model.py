@@ -3,30 +3,13 @@ from typing import Optional, Dict
 from .module import Module
 from .layers.transformer_block import TransformerBlock
 from .layers.linear import Linear
+from .utils import get_positional_encoding
 import tqdm
 
 
 class Transformer(Module):
-    """
-    Transformer model for sequence-to-sequence or sequence-to-one tasks.
-    Follows the same pattern as RNN/GRU/LSTM models in this codebase.
-    """
-    
     def __init__(self, n_inputs: int, d_model: int, n_heads: int, n_layers: int,
                  d_ff: int, n_outputs: int, max_seq_len: int = 100, dropout: float = 0.0):
-        """
-        Initialize Transformer model.
-        
-        Args:
-            n_inputs: Input feature dimension
-            d_model: Model dimension (must be divisible by n_heads)
-            n_heads: Number of attention heads
-            n_layers: Number of transformer blocks
-            d_ff: Feed-forward dimension
-            n_outputs: Output dimension
-            max_seq_len: Maximum sequence length
-            dropout: Dropout rate (not implemented yet, kept for API compatibility)
-        """
         super().__init__()
         assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
         
@@ -36,12 +19,9 @@ class Transformer(Module):
         self.n_layers = n_layers
         self.d_ff = d_ff
         self.n_outputs = n_outputs
-        self.max_seq_len = max_seq_len
         
-        # Input projection to d_model
         self.input_proj = Linear(n_inputs, d_model)
         
-        # Stack of transformer blocks
         self.blocks = []
         for i in range(n_layers):
             block = TransformerBlock(d_model, n_heads, d_ff, dropout)
@@ -50,41 +30,28 @@ class Transformer(Module):
         
         self._modules["input_proj"] = self.input_proj
         
-        # Output projection (for many-to-one: take last token or pool)
         self.output_proj = Linear(d_model, n_outputs)
         self._modules["output_proj"] = self.output_proj
         
-        # Cache for backward pass
         self._cache: Dict[str, list] = {
             "inputs": [],
             "block_outputs": []
         }
     
     def forward(self, x: np.ndarray) -> np.ndarray:
-        """
-        Forward pass of transformer.
-        
-        Args:
-            x: Input of shape (seq_len, n_inputs) for single sequence
-               or (batch, seq_len, n_inputs) for batch
-        
-        Returns:
-            Output logits of shape (n_outputs,) for single sequence
-               or (batch, n_outputs) for batch
-        """
-        # Handle single sequence: (seq_len, n_inputs)
         if x.ndim == 2:
             seq_len, _ = x.shape
             x = x.T  # (n_inputs, seq_len)
             
-            # Project input to d_model
-            x = self.input_proj(x)  # (d_model, seq_len)
+            projected_input = self.input_proj(x)  # (d_model, seq_len)
             
-            # Store for backward
-            self._cache["inputs"] = [x]
+            pos_enc = get_positional_encoding(seq_len, self.d_model)  # (d_model, seq_len)
+            x = projected_input + pos_enc  # (d_model, seq_len)
+            # x = projected_input
+            
+            self._cache["inputs"] = [projected_input.copy()]
             self._cache["block_outputs"] = []
             
-            # Pass through transformer blocks
             for block in self.blocks:
                 x = block(x)  # (d_model, seq_len)
                 self._cache["block_outputs"].append(x.copy())
@@ -99,13 +66,16 @@ class Transformer(Module):
             return output.squeeze(axis=1)  # (n_outputs,)
         
         else:
-            # Batch processing: (batch, seq_len, n_inputs)
             batch_size, seq_len, _ = x.shape
             outputs = []
             
+            pos_enc = get_positional_encoding(seq_len, self.d_model)  # (d_model, seq_len)
+            
             for i in range(batch_size):
                 x_seq = x[i].T  # (n_inputs, seq_len)
-                x_seq = self.input_proj(x_seq)
+                projected_input = self.input_proj(x_seq)
+                x_seq = projected_input + pos_enc
+                # x_seq = projected_input
                 
                 for block in self.blocks:
                     x_seq = block(x_seq)
@@ -117,37 +87,23 @@ class Transformer(Module):
             return np.array(outputs).T  # (n_outputs, batch) -> transpose to (batch, n_outputs)
     
     def backward(self, loss_grad: np.ndarray) -> None:
-        """
-        Backward pass of transformer.
-        
-        Args:
-            loss_grad: Gradient from loss function, shape (n_outputs,) for single sequence
-                       or (batch, n_outputs) for batch
-        """
-        # Handle single sequence (assume cache is set from forward)
         if loss_grad.ndim == 1:
             loss_grad = loss_grad.reshape(-1, 1)  # (n_outputs, 1)
         
-        # Backward through output projection
         doutput = self.output_proj.backward(loss_grad)  # (d_model, 1)
         
-        # Expand to full sequence length (only last token has gradient)
-        # Get sequence length from cached block outputs
         if len(self._cache["block_outputs"]) > 0:
             seq_len = self._cache["block_outputs"][-1].shape[1]
         else:
-            # Fallback: assume we can infer from input cache
             seq_len = self._cache["inputs"][0].shape[1] if len(self._cache["inputs"]) > 0 else 1
         
         dblock_output = np.zeros((self.d_model, seq_len))
         dblock_output[:, -1:] = doutput  # Only last token has gradient
         
-        # Backward through transformer blocks in reverse
         for i in range(len(self.blocks) - 1, -1, -1):
             block = self.blocks[i]
             dblock_output = block.backward(dblock_output)
         
-        # Backward through input projection
         self.input_proj.backward(dblock_output)
     
     def update_params(self, learning_rate: float = 0.001, optimizer=None) -> None:
@@ -156,15 +112,12 @@ class Transformer(Module):
             optimizer.step(self)
             return
         
-        # Update input projection
         if hasattr(self.input_proj, "W_grad"):
             self.input_proj.update_params(learning_rate)
         
-        # Update transformer blocks
         for block in self.blocks:
             block.update_params(learning_rate)
         
-        # Update output projection
         if hasattr(self.output_proj, "W_grad"):
             self.output_proj.update_params(learning_rate)
     
@@ -183,28 +136,17 @@ class Transformer(Module):
     
     def train_step(self, X: np.ndarray, y_true: np.ndarray, loss_fn,
                    learning_rate: float = 0.001, optimizer=None) -> float:
-        """
-        Run a single optimization step on a sequence or batch.
-        
-        Args:
-            X: (seq_len, n_inputs) for single sequence or (batch, seq_len, n_inputs) for batch
-            y_true: (n_outputs,) one-hot for CE or targets for regression
-                   or (batch, n_outputs) for batch
-        """
         batch_loss = 0
         
-        # Handle single sequence
         if X.ndim == 2:
             y_pred = self.forward(X)  # (n_outputs,)
             
-            # Align with patterns in other models
             loss_vals = loss_fn.forward(y_pred.T, y_true.T)
             batch_loss = float(np.mean(loss_vals))
             
             loss_grad = loss_fn.backward(y_pred.T, y_true.T).T  # (n_outputs,)
             self.backward(loss_grad)
         else:
-            # Batch processing
             batch_size = X.shape[0]
             for i in range(batch_size):
                 cur_x = X[i]  # (seq_len, n_inputs)
@@ -290,7 +232,6 @@ class Transformer(Module):
                 val_loss /= X_val.shape[0]
                 history['val_loss'].append(val_loss)
                 
-                # Compute accuracy if applicable
                 try:
                     y_val_pred = []
                     for i in range(X_val.shape[0]):
