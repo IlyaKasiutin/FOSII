@@ -114,9 +114,84 @@ class GNN(Module):
             layer.zero_grad()
         self.readout.zero_grad()
     
+    def clip_gradients(self, max_norm: float = 1.0) -> None:
+        """
+        Clip gradients to prevent explosion.
+        
+        Args:
+            max_norm: Maximum gradient norm
+        """
+        # Zero out NaN/Inf gradients first
+        for layer in self.layers:
+            if hasattr(layer, 'node_transform'):
+                layer.node_transform.W_grad = np.where(
+                    np.isfinite(layer.node_transform.W_grad),
+                    layer.node_transform.W_grad, 0.0
+                )
+                layer.node_transform.bias_grad = np.where(
+                    np.isfinite(layer.node_transform.bias_grad),
+                    layer.node_transform.bias_grad, 0.0
+                )
+                layer.edge_transform.W_grad = np.where(
+                    np.isfinite(layer.edge_transform.W_grad),
+                    layer.edge_transform.W_grad, 0.0
+                )
+                layer.edge_transform.bias_grad = np.where(
+                    np.isfinite(layer.edge_transform.bias_grad),
+                    layer.edge_transform.bias_grad, 0.0
+                )
+                layer.message_transform.W_grad = np.where(
+                    np.isfinite(layer.message_transform.W_grad),
+                    layer.message_transform.W_grad, 0.0
+                )
+                layer.message_transform.bias_grad = np.where(
+                    np.isfinite(layer.message_transform.bias_grad),
+                    layer.message_transform.bias_grad, 0.0
+                )
+        if hasattr(self, 'readout'):
+            self.readout.W_grad = np.where(
+                np.isfinite(self.readout.W_grad),
+                self.readout.W_grad, 0.0
+            )
+            self.readout.bias_grad = np.where(
+                np.isfinite(self.readout.bias_grad),
+                self.readout.bias_grad, 0.0
+            )
+        
+        # Compute total norm
+        total_norm = 0.0
+        for layer in self.layers:
+            if hasattr(layer, 'node_transform'):
+                total_norm += np.sum(layer.node_transform.W_grad ** 2)
+                total_norm += np.sum(layer.node_transform.bias_grad ** 2)
+                total_norm += np.sum(layer.edge_transform.W_grad ** 2)
+                total_norm += np.sum(layer.edge_transform.bias_grad ** 2)
+                total_norm += np.sum(layer.message_transform.W_grad ** 2)
+                total_norm += np.sum(layer.message_transform.bias_grad ** 2)
+        if hasattr(self, 'readout'):
+            total_norm += np.sum(self.readout.W_grad ** 2)
+            total_norm += np.sum(self.readout.bias_grad ** 2)
+        
+        total_norm = np.sqrt(total_norm)
+        
+        # Clip if norm exceeds threshold
+        if total_norm > max_norm:
+            clip_coef = max_norm / (total_norm + 1e-8)
+            for layer in self.layers:
+                if hasattr(layer, 'node_transform'):
+                    layer.node_transform.W_grad *= clip_coef
+                    layer.node_transform.bias_grad *= clip_coef
+                    layer.edge_transform.W_grad *= clip_coef
+                    layer.edge_transform.bias_grad *= clip_coef
+                    layer.message_transform.W_grad *= clip_coef
+                    layer.message_transform.bias_grad *= clip_coef
+            if hasattr(self, 'readout'):
+                self.readout.W_grad *= clip_coef
+                self.readout.bias_grad *= clip_coef
+    
     def train_step(self, node_features: np.ndarray, edge_features: np.ndarray,
                    adjacency_list: list, y_true: np.ndarray, loss_fn,
-                   learning_rate: float = 0.001, optimizer=None) -> float:
+                   learning_rate: float = 0.001, optimizer=None, gradient_clip: float = None) -> float:
         """
         Perform a single training step.
         
@@ -144,14 +219,19 @@ class GNN(Module):
         loss_grad = loss_fn.backward(y_pred_reshaped, y_true_reshaped).squeeze(axis=1)
         self.backward(loss_grad)
         
+        # Clip gradients if specified
+        if gradient_clip is not None:
+            self.clip_gradients(gradient_clip)
+        
         self.update_params(learning_rate, optimizer)
         self.zero_grad()
         
         return batch_loss
     
     def train(self, graphs: list, y_train: np.ndarray,
+              graphs_val: list = None, y_val: np.ndarray = None,
               epochs: int = 10, batch_size: int = 32, learning_rate: float = 0.001,
-              loss_fn=None, optimizer=None, verbose: bool = True) -> dict:
+              loss_fn=None, optimizer=None, verbose: bool = True, gradient_clip: float = None) -> dict:
         """
         Train the GNN model with batch training.
         
@@ -161,12 +241,15 @@ class GNN(Module):
                     'edge_features': np.ndarray of shape (num_edges, edge_features)
                     'adjacency_list': list of lists
             y_train: Training targets of shape (num_samples, num_classes)
+            graphs_val: Optional validation graphs (same format as graphs)
+            y_val: Optional validation targets of shape (num_val_samples, num_classes)
             epochs: Number of training epochs
             batch_size: Size of training batches
             learning_rate: Learning rate
             loss_fn: Loss function (defaults to CrossEntropy)
             optimizer: Optimizer (optional)
             verbose: Whether to print training progress
+            gradient_clip: Maximum gradient norm for clipping (None to disable)
             
         Returns:
             Dictionary with training history
@@ -179,6 +262,8 @@ class GNN(Module):
         history = {
             'train_loss': [],
         }
+        if graphs_val is not None and y_val is not None:
+            history['val_loss'] = []
         
         for epoch in range(epochs):
             # Shuffle training data
@@ -200,7 +285,7 @@ class GNN(Module):
                 for graph, target in zip(batch_graphs, batch_targets):
                     sample_loss = self.train_step(
                         graph['node_features'], graph['edge_features'], graph['adjacency_list'],
-                        target, loss_fn, learning_rate, optimizer
+                        target, loss_fn, learning_rate, optimizer, gradient_clip=gradient_clip
                     )
                     batch_loss += sample_loss
                 
@@ -211,7 +296,28 @@ class GNN(Module):
             avg_train_loss = total_loss / num_batches
             history['train_loss'].append(avg_train_loss)
             
+            # Compute validation loss if validation data is provided
+            val_loss = None
+            if graphs_val is not None and y_val is not None:
+                val_losses = []
+                for graph, target in zip(graphs_val, y_val):
+                    output = self.forward(
+                        graph['node_features'],
+                        graph['edge_features'],
+                        graph['adjacency_list']
+                    )
+                    y_pred = output.reshape(-1, 1)
+                    y_true = target.reshape(-1, 1)
+                    loss_vals = loss_fn.forward(y_pred, y_true)
+                    val_losses.append(float(np.mean(loss_vals)))
+                
+                val_loss = np.mean(val_losses)
+                history['val_loss'].append(val_loss)
+            
             if verbose:
-                print(f"Epoch {epoch+1}/{epochs} - loss: {avg_train_loss:.4f}")
+                if val_loss is not None:
+                    print(f"Epoch {epoch+1}/{epochs} - loss: {avg_train_loss:.4f} - val_loss: {val_loss:.4f}")
+                else:
+                    print(f"Epoch {epoch+1}/{epochs} - loss: {avg_train_loss:.4f}")
         
         return history
