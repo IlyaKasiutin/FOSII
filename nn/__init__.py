@@ -1,12 +1,14 @@
 from .module import Module
 from .mlp import MLP
 from .cnn import LeNet
+from .gnn_model import GNN
 from .layers.linear import Linear
 from .layers.sigmoid import Sigmoid
 from .layers.softmax import Softmax
 from .layers.convolution import Conv2d
 from .layers.pooling import MaxPool2d, AvgPool2d
 from .layers.transformer_block import TransformerBlock, MultiHeadAttention, LayerNorm, FeedForward
+from .layers.gnn_layer import GNNLayer
 from .transformer_model import Transformer
 from .losses.mse import MSE
 from .losses.cross_entropy import CrossEntropy
@@ -18,6 +20,8 @@ __all__ = [
     "Module",
     "MLP",
     "LeNet",
+    "GNN",
+    "GNNLayer",
     "Linear",
     "Sigmoid",
     "Softmax",
